@@ -118,11 +118,7 @@ jobs:
         shell: pwsh
         run: |
           winget install -e --id AutoHotkey.AutoHotkey --silent --accept-source-agreements --accept-package-agreements --disable-interactivity
-          ls "$env:ProgramW6432\"
-          ls "$env:ProgramW6432\AutoHotkey"
-          $ahkDir = "$env:LOCALAPPDATA\Programs\AutoHotkey\v2"
-          ls $ahkDir
-          exit 1
+          $ahkDir = "$env:ProgramW6432\AutoHotkey\v2"
           Add-Content -Path $env:GITHUB_PATH -Value $ahkDir
 
       - name: Install ffmpeg

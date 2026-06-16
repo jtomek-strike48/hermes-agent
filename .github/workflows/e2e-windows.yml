@@ -158,7 +158,7 @@ jobs:
         run: |
           ls "$PWD\test-bins\ffmpeg"
           Add-Content -Path $env:GITHUB_PATH -Value "$PWD\test-bins\autohotkey"
-          Add-Content -Path $env:GITHUB_PATH -Value "$PWD\test-bins\ffmpeg"
+          Add-Content -Path $env:GITHUB_PATH -Value "$PWD\test-bins\ffmpeg\bin"
 
       # ── Prepare an isolated HERMES_HOME and copy checked-out repo ──────
       # actions/checkout already has the right commit; just mirror it into the

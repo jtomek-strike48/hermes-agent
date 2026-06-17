@@ -203,6 +203,8 @@ jobs:
           Write-Host "ffmpeg recording started (pid $($ffmpeg.Id))"
 
           try {
+          ls .\source\e2e\
+          ls .\source\e2e\windows\
           $ahk | Out-File -Encoding utf8 ".\source\e2e\windows\install-hermes-desktop.ahk"
 
           $ahkProc = Start-Process -FilePath ".\test-bins\autohotkey\AutoHotkey64.exe" `

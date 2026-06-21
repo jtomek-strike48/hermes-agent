@@ -21,6 +21,7 @@ LogError(err, mode) {
         "Unhandled error: " err.Message "`n",
         logPath
     )
+    ExitApp(1)
     return -1  ; suppress the standard error dialog
 }
 

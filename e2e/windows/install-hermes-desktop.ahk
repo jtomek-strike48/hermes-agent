@@ -77,14 +77,11 @@ ClickCenterOfImageInWindow(winTitle, imageFile, timeoutMs := 10000, intervalMs :
     timeLeft := timeoutMs - (A_TickCount - startTime)
     while (timeLeft > 0)
     {
-        try
+        if ImageSearch(&x, &y, wx, wy, wx + ww, wy + wh, Format("*10 {}", imageFile))
         {
-            if ImageSearch(&x, &y, wx, wy, wx + ww, wy + wh, Format("*10 {}", imageFile))
-            {
-                ClickWithMarker(x + Floor(width / 2), y + Floor(height / 2))
-                Log("Found button!")
-                return
-            }
+            ClickWithMarker(x + Floor(width / 2), y + Floor(height / 2))
+            Log("Found button!")
+            return
         }
 
         Sleep intervalMs

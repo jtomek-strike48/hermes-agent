@@ -273,7 +273,7 @@ jobs:
               }
             }
             Write-Host "ffmpeg stopped"
-            
+
             # Installer should have exited
             if ($proc.HasExited) {
               # TODO check exit code once we add exit code in installer
@@ -296,17 +296,6 @@ jobs:
         env:
           # Point the e2e spec at the desktop binary that the installer built.
           HERMES_E2E_INSTALL_ROOT: ${{ env.HERMES_HOME }}\hermes-agent
-
-      - name: Upload screenshot artifact
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: screenshot
-          path: screenshot.png
-          if-no-files-found: error
-          retention-days: 1
-          archive: false
-          overwrite: true
 
       # ── Teardown & artifacts ────────────────────────────────────────
       # ffmpeg is normally started AND gracefully stopped inside the launch

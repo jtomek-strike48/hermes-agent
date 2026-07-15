@@ -13,7 +13,7 @@ import { triggerHaptic } from '@/lib/haptics'
 import { handoffOriginSource, sessionSourceLabel } from '@/lib/session-source'
 import { coarseElapsed } from '@/lib/time'
 import { cn } from '@/lib/utils'
-import { $attentionSessionIds, $unreadFinishedSessionIds } from '@/store/session'
+import { $attentionSessionIds } from '@/store/session'
 import { openSessionTile } from '@/store/session-states'
 import { canOpenSessionWindow, openSessionInNewWindow } from '@/store/windows'
 
@@ -75,11 +75,10 @@ export function SidebarSessionRow({
   // Telegram thread continued here still reads as Telegram.
   const handoffSource = handoffOriginSource(session.handoff_state, session.handoff_platform)
   const handoffLabel = handoffSource ? (sessionSourceLabel(handoffSource) ?? handoffSource) : null
-  // True when a clarify prompt in this session is waiting on the user.
+  // Subscribe per-row (the leaf) instead of drilling a set through the list —
+  // the atom is tiny and rarely non-empty. True when a clarify prompt in this
+  // session is waiting on the user.
   const needsInput = useStore($attentionSessionIds).includes(session.id)
-  // True when the session's most recent turn finished in the background (while
-  // the user was viewing a different session) and hasn't been opened since.
-  const isUnread = useStore($unreadFinishedSessionIds).includes(session.id)
 
   return (
     <SessionContextMenu
@@ -212,12 +211,11 @@ export function SidebarSessionRow({
                 className="transition-opacity group-hover/handle:opacity-0 group-focus-within/handle:opacity-0"
                 isWorking={isWorking}
                 needsInput={needsInput}
-                isUnread={isUnread}
               />
             </SidebarRowGrab>
           ) : (
             <SidebarRowLead className={needsInput ? 'overflow-visible' : 'overflow-hidden'}>
-              <SessionRowLeadDot branchStem={branchStem} isWorking={isWorking} needsInput={needsInput} isUnread={isUnread} />
+              <SessionRowLeadDot branchStem={branchStem} isWorking={isWorking} needsInput={needsInput} />
             </SidebarRowLead>
           )}
           {handoffSource && handoffLabel ? (
@@ -242,13 +240,11 @@ function SessionRowLeadDot({
   branchStem,
   isWorking,
   needsInput = false,
-  isUnread = false,
   className
 }: {
   branchStem?: string
   isWorking: boolean
   needsInput?: boolean
-  isUnread?: boolean
   className?: string
 }) {
   return (
@@ -258,7 +254,7 @@ function SessionRowLeadDot({
           {branchStem}
         </span>
       ) : null}
-      <SidebarRowDot isWorking={isWorking} needsInput={needsInput} isUnread={isUnread} />
+      <SidebarRowDot isWorking={isWorking} needsInput={needsInput} />
     </span>
   )
 }
@@ -266,12 +262,10 @@ function SessionRowLeadDot({
 function SidebarRowDot({
   isWorking,
   needsInput = false,
-  isUnread = false,
   className
 }: {
   isWorking: boolean
   needsInput?: boolean
-  isUnread?: boolean
   className?: string
 }) {
   const { t } = useI18n()
@@ -288,21 +282,6 @@ function SidebarRowDot({
         className={cn('quest-glow relative size-1.5 rounded-full bg-amber-500', className)}
         role="status"
         title={r.waitingForAnswer}
-      />
-    )
-  }
-
-  // "Unread finished" wins over the default gray dot: a background session's
-  // turn completed and the user hasn't opened it since. Steady green (no pulse)
-  // reads as "something new here, go look" — distinct from the live accent
-  // pulse of a running turn.
-  if (isUnread) {
-    return (
-      <span
-        aria-label={r.finishedUnread}
-        className={cn('size-1.5 rounded-full bg-emerald-500', className)}
-        role="status"
-        title={r.finishedUnread}
       />
     )
   }

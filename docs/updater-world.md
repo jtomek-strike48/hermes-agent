@@ -279,7 +279,8 @@ in-app), and they drift.
      caveats, and the updater degrades gracefully into "you own this now"
      with helpful tooling instead of pretending it's still managed.
 3. **Atomic switch, not in-place mutation.** New version installs *next to*
-   the old one; a symlink/junction flip is the commit point. The running
+   the old one; a symlink flip (POSIX) or an atomic indirection-file
+   replace (Windows — see §2.2) is the commit point. The running
    process never modifies the code it is executing.
 4. **One dependency manifest** consumed by every surface, instead of version
    floors and URLs copy-pasted across install.sh / install.ps1 / main.ts /
@@ -335,7 +336,12 @@ $HERMES_HOME/
 ├── versions/
 │   ├── 1.42.0/            # unpacked bundle (immutable after verify)
 │   └── 1.43.0/
-├── current -> versions/1.43.0        # symlink (POSIX) / junction (Windows)
+├── current -> versions/1.43.0        # symlink (POSIX); on Windows the commit
+│                                     #   point is a `current.txt` indirection
+│                                     #   file (rename-over-existing is atomic
+│                                     #   for files only there — a junction
+│                                     #   cannot be replaced atomically; see
+│                                     #   the phase-1 spec, task 1.4)
 ├── previous -> versions/1.42.0      # instant rollback target
 ├── bin/hermes             # stable shim: exec "$HERMES_HOME/current/bin/hermes" "$@"
 └── (config.yaml, .env, skills/, sessions/… unchanged — data dir stays as-is)
@@ -366,8 +372,10 @@ What this deletes from the current world:
   in a fresh process.
 - **The Windows lock war, mostly.** Nothing ever writes into the tree a
   running process has mapped; the new version unpacks into a fresh directory.
-  The only lock-sensitive moment is the link flip (junctions can be swapped
-  while `.pyd`s in the *old* target are open) and the stable shim itself,
+  The only lock-sensitive moment is the flip commit (on Windows an
+  atomic file replace of the `current.txt` indirection — open `.pyd`s in
+  the *old* slot don't block it because nothing renames over them) and
+  the stable shim itself,
   which is never rewritten during update. `--force`, `--force-venv`,
   gateway pause/resume, venv-holder detection: gone. Old versions are
   garbage-collected on a *later* run when no process has them open.
@@ -464,6 +472,13 @@ Invariants that make this safe:
   contract between bundle layout and updater, replacing today's implicit
   "hope the old in-memory code understands the new tree" (the
   `sourceDeclaresServe` / `_UvResult` class of problem).
+- **The paths the hop itself depends on are frozen at the same tier**:
+  `manifest.json` at the bundle root and the updater/launcher binary at
+  `bin/hermes` must exist in every future bundle an old staged updater
+  could be asked to hop into. Moving either requires a
+  `min_updater_version` bump plus a compat copy at the old path for one
+  contract window — otherwise the hop can't find the binary it needs to
+  hop *to*.
 - The hop re-execs a **verified** binary (hash-checked as part of the
   bundle signature) — the old updater's signature check is the root of
   trust; a new updater is never run before its bundle verifies.

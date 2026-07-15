@@ -71,9 +71,18 @@ spawn + wait + mirror exit code) of
 `<venv python> -m hermes_cli.main <args...>`.
 
 **Step 2: launcher self-check (§2.5.1).** Before exec, verify the venv
-python exists and `-c "import hermes_cli"` exits 0 (cache the success with
-a `.launcher-ok` stamp beside the venv keyed on venv mtime, so the probe
-runs once, not per-invocation). On failure print EXACTLY:
+python exists and `-c "import hermes_cli"` exits 0. Cache the success in
+a `.launcher-ok` stamp beside the venv so the probe runs once, not
+per-invocation — but do NOT key it on the venv directory's mtime: a
+dir's mtime does not change when files deep inside `site-packages`
+change (`dev sync`, a lazy-feature install, a partial wipe), so an
+mtime key happily reports "healthy" over a venv that was just churned.
+Key the stamp on content that actually moves when the venv does:
+sha256 of (`pyvenv.cfg` bytes + `uv.lock` bytes + interpreter path).
+Slots are immutable so the stamp is effectively permanent there;
+checkouts re-probe exactly when the lockfile or venv config changed.
+`dev sync` (phase 3) also deletes the stamp after mutating the venv —
+belt and suspenders. On failure print EXACTLY:
 
 ```
 hermes: this tree's virtualenv is missing or broken.
@@ -116,11 +125,31 @@ constructor).
 
 **Step 1 (TDD `slots.rs`):** pure slot management against an injectable
 root: `stage(version)` → `versions/<v>.staging/`; `commit_staging` →
-fsync + rename to `versions/<v>`; `flip(version)` → atomic symlink swap
-(create `current.new` symlink + `rename` over `current`; Windows: junction
-swap via `MoveFileExW` with `MOVEFILE_REPLACE_EXISTING`); `previous` link
+fsync + rename to `versions/<v>`; `flip(version)`; `previous` link
 update; `gc(keep_n)` — never GC the targets of `current`/`previous`;
 `cleanup_stale_staging()`.
+
+**The flip, per platform (get this right — it is THE atomic commit
+point of the whole design):**
+
+- **POSIX**: create `current.new` symlink → `rename()` over `current`.
+  Atomic, done.
+- **Windows**: ⚠ the obvious port does NOT work. `MoveFileExW` +
+  `MOVEFILE_REPLACE_EXISTING` **cannot replace an existing directory
+  entry**, and a junction IS a directory entry — rename-over-existing
+  is a file-only trick on Windows. Do NOT ship a junction swap that
+  deletes-then-renames without crash recovery. Use a **`current.txt`
+  indirection file instead of a junction on Windows**: a one-line file
+  containing the active version string, replaced via write-temp +
+  `MoveFileExW(MOVEFILE_REPLACE_EXISTING)` (atomic for files). The
+  launcher (task 1.1/1.2) reads `current.txt` on Windows and
+  `readlink(current)` on POSIX — both behind one
+  `resolve_current(root) -> version` function so nothing else cares.
+  (`FILE_RENAME_FLAG_POSIX_SEMANTICS` directory-rename is a possible
+  future upgrade but needs Win10 1607+ + NTFS + admin-free junction
+  handling — don't bet the commit point on it in v1. A junction may
+  still be *maintained* best-effort for user convenience/PATH-following,
+  but `current.txt` is the source of truth the flip commits.)
 
 **Step 2 (apply flow):** download → verify → stage → **preflight** →
 flip → restage self (task 1.6) → restart services (task 1.7). Preflight =
@@ -150,7 +179,13 @@ already parses it) for the flip+restart critical section ONLY.
 checks: core imports (`run_agent`, `model_tools`, `gateway.run`,
 `hermes_cli.main` — import them for real in a subprocess), config parses
 (`load_config()` doesn't raise), config version migratable
-(`check_config_version()` current ≤ latest). Test against the isolated
+(`check_config_version()` current ≤ latest), **and artifact roots
+resolve** (task 0.2b): `get_artifact_root()` succeeds and each accessor
+(`bundled_skills_dir()`, `web_dist_dir()`, `tui_dist_dir()`) points at
+an existing, non-empty directory — skipping any the manifest flags
+absent (e.g. `"desktop": false`). This is what makes preflight catch
+the non-editable-install gap: imports alone go green while every
+repo-root-relative asset lookup is broken. Test against the isolated
 `HERMES_HOME` fixture; assert a broken venv path is reported not raised.
 
 **Step 2-4:** red → implement → green:
@@ -169,6 +204,15 @@ semver compare. `hop(bundle, args)`: extract `bin/hermes` from the verified
 bundle to a temp path, re-exec with original argv + `--hopped`; if
 `--hopped` is already present, refuse (return error → the OLD updater
 reports failure). Test the flag plumbing.
+
+> **Contract note:** the hop hardcodes `bin/hermes` inside the bundle —
+> that path is now part of the updater↔bundle contract at the same tier
+> as `min_updater_version` and root-level `manifest.json`: an old staged
+> updater must be able to find the new binary in ANY future bundle it is
+> asked to hop into. A layout reshuffle that moves `bin/hermes` requires
+> a `min_updater_version` bump AND keeping a compat copy at the old path
+> for one contract window. Record this in `scripts/release/README.md`'s
+> contract section (task 0.0).
 
 **Step 2:** `self-restage`: POSIX = write `bin/.hermes-updater.new` +
 rename over `bin/hermes-updater`; Windows = rename running exe to
@@ -253,8 +297,9 @@ with a bumped version string):
 
 ## Pitfalls
 
-- **Symlink flip on Windows**: junctions, not symlinks (no admin needed).
-  Test on a real Windows runner — WSL will lie to you.
+- **The flip on Windows**: `current.txt` indirection, NOT a junction
+  rename (see task 1.4 — `MOVEFILE_REPLACE_EXISTING` can't replace a
+  directory entry). Test on a real Windows runner — WSL will lie to you.
 - **Do not add Tauri deps** to the launcher crate; it must build in seconds
   and produce a <5MB static-ish binary (musl target for linux).
 - The marker file format must stay byte-compatible with

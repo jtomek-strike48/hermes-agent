@@ -79,23 +79,43 @@ to a different absolute path — the property slots depend on.
 **Files:**
 - Create: `scripts/release/check-relocatable.sh`
 
-**Step 1:** Write the check script:
+**Step 1:** Write the check script. Two traps make a naive version
+false-pass, and both MUST be handled or this check proves nothing:
+
+1. **`uv sync` installs the project EDITABLE by default.** An editable
+   install's `.pth` points back at the source checkout — which still
+   exists after you move the venv — so imports succeed via the *source
+   tree*, not the venv. Pass `--no-editable`.
+2. **The source tree must be unreachable during the probe.** Even a
+   non-editable install can false-pass if cwd is the repo root (`''` on
+   `sys.path` resolves top-level modules like `run_agent` from the
+   checkout). Copy the tree, build from the copy, then DELETE the copy
+   before probing, and probe from a neutral cwd.
 
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
-# Build a venv at path A, move it to path B, verify core imports still work.
-SRC=$(mktemp -d)/build && DST=$(mktemp -d)/moved
+# Build a venv from a throwaway COPY of the source at path A, delete the
+# copy, move the venv to path B, verify core imports work from a neutral
+# cwd. Proves the venv carries everything and bakes no absolute paths.
+REPO_ROOT=$(git rev-parse --show-toplevel)
+WORK=$(mktemp -d) && DST=$(mktemp -d)
+git -C "$REPO_ROOT" archive HEAD | tar -x -C "$WORK"      # clean copy, no .git
+cp "$REPO_ROOT/uv.lock" "$WORK/uv.lock" 2>/dev/null || true
 UV=${UV:-uv}
-"$UV" venv --python 3.11 --relocatable "$SRC/venv"
-VIRTUAL_ENV="$SRC/venv" "$UV" sync --extra all --locked --project . \
-  --python "$SRC/venv/bin/python"
-mv "$SRC/venv" "$DST"
-"$DST/bin/python" -c "import hermes_cli, run_agent, model_tools; print('RELOCATABLE_OK')"
+"$UV" venv --python 3.11 --relocatable "$WORK/venv"
+VIRTUAL_ENV="$WORK/venv" "$UV" sync --extra all --locked --no-editable \
+  --project "$WORK" --python "$WORK/venv/bin/python"
+mv "$WORK/venv" "$DST/venv"
+rm -rf "$WORK"                                             # source is GONE
+cd /
+"$DST/venv/bin/python" -c "import hermes_cli, run_agent, model_tools; print('RELOCATABLE_OK')"
 ```
 
 **Step 2:** Run it: `bash scripts/release/check-relocatable.sh`
-Expected: prints `RELOCATABLE_OK`.
+Expected: prints `RELOCATABLE_OK`. If the import fails with a path under
+the (deleted) work dir, that IS the finding — an editable/.pth/shebang
+leak; see step 3.
 
 **Step 3 (only if step 2 fails):** The failures will be shebang paths or
 baked absolute paths in `.pth`/entry-point files. Fix by (a) using
@@ -105,6 +125,63 @@ path. Record findings in `scripts/release/README.md`. **Do not proceed to
 0.3 until this passes.**
 
 **Step 4:** Commit: `feat(release): relocatable venv check script`.
+
+## Task 0.2b: Slot artifact-root resolver (the non-editable gap)
+
+**Objective:** Close the gap that relocatability alone does NOT cover:
+today's world is `pip install -e .`, so `hermes_cli.__file__` lives *in
+the checkout* and every repo-root-relative lookup works for free —
+bundled `skills/` sync, the web dashboard's `web_dist`, ui-tui dist
+resolution, `PROJECT_ROOT` detection, `constraints-termux.txt`. In a slot
+the venv is a **regular** install: code resolves from `site-packages`,
+while the artifacts live at `<slot>/app/`, `<slot>/ui/tui/dist`,
+`<slot>/ui/web/dist`. Without an owner, `hermes --tui`, dashboard SPA
+serving, and skills sync are silently broken in every bundle — and a
+naive import-only preflight goes green anyway.
+
+**Files:**
+- Modify: `hermes_constants.py` (single resolver, beside `get_hermes_home()`)
+- Test: `tests/test_artifact_roots.py`
+
+**Step 1 — inventory (do not guess):** find every repo-root-relative
+lookup: `search_files '__file__' hermes_cli/ tools/ gateway/` plus
+`search_files 'parent.parent' --file_glob '*.py'`, and trace how
+`PROJECT_ROOT` in `hermes_cli/main.py`, `_build_web_ui`'s dist consumer,
+the TUI entry resolution, and `tools/skills_sync.py` locate their assets.
+Record the list in this doc's PR description — phase 1's preflight (task
+1.5) probes each of them.
+
+**Step 2 (failing tests first):** one function, one rule:
+
+```python
+def get_artifact_root() -> Path:
+    """Root for repo-shipped assets (skills/, ui/, app source).
+
+    Slot: the bundle root (walk up from __file__ to the dir containing
+    manifest.json — site-packages lives under <root>/runtime/venv/).
+    Checkout: the repo root (dir containing pyproject.toml + .git),
+    which is what today's editable-install world already resolves to.
+    """
+```
+
+plus thin, named accessors used by the call sites from step 1
+(`bundled_skills_dir()`, `web_dist_dir()`, `tui_dist_dir()`) so the
+layout difference (`skills/` vs `app/skills/`, `web/web_dist` vs
+`ui/web/dist`) is encoded in ONE module, not at N call sites. TDD with
+tmpdir fixtures of both layouts.
+
+**Step 3:** migrate the call sites from step 1's inventory onto the
+accessors. Behavior in a checkout must be byte-identical (the accessors
+return exactly the paths those sites compute today — assert this in the
+tests against a checkout-layout fixture).
+
+**Step 4:** `scripts/run_tests.sh tests/test_artifact_roots.py -q` → pass.
+
+**Step 5:** Commit: `feat(release): artifact-root resolver for slot layout`.
+
+> **Contract note:** `manifest.json` at the slot root is what makes slot
+> detection work — task 0.3's layout and task 1.1's `resolve_tree_root`
+> both key on it. It is part of the updater↔bundle contract (§2.3.1).
 
 ## Task 0.3: Bundle build script
 
@@ -129,6 +206,13 @@ dist/bundle/
 └── bin/hermes           # placeholder shell shim until phase 1's binary exists:
                          #   #!/bin/sh
                          #   exec "$(dirname "$0")/../runtime/venv/bin/hermes" "$@"
+                         # NOTE: the venv entrypoint's shebang must survive
+                         # relocation — that's exactly what task 0.2's check
+                         # proves (uv --relocatable rewrites shebangs to the
+                         # `#!/bin/sh`-exec trampoline form). If 0.2 didn't
+                         # pass, this shim breaks on unpack; safer variant:
+                         #   exec ".../runtime/venv/bin/python" -m hermes_cli.main "$@"
+                         # which sidesteps entrypoint shebangs entirely.
 ```
 
 Key implementation notes for the implementer:

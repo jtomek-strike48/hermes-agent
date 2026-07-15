@@ -94,7 +94,11 @@ reinvent it.
    (same has-desktop heuristic as `cmd_update`);
 5. apply the feature ledger if present (phase 5; soft-import, skip if
    module absent);
-6. print a summary table of built/skipped.
+6. delete the venv's `.launcher-ok` stamp whenever step 1 touched the
+   venv (the launcher's self-check cache — task 1.2 keys it on
+   pyvenv.cfg + uv.lock, but dev sync deleting it after any venv
+   mutation is the belt-and-suspenders half of that contract);
+7. print a summary table of built/skipped.
 
 **Step 4:** green: `scripts/run_tests.sh tests/hermes_cli/test_dev_sync.py -q`.
 

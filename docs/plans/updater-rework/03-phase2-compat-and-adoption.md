@@ -95,6 +95,15 @@ the module docstring with a link to §2.13.
 pass on current main (if anything fails HERE, a compat break already
 shipped — escalate to the maintainer immediately, do not "fix the test").
 
+> **Known limitation (state it in the module docstring):** the fence
+> freezes signatures *as they exist on current main*. If a frozen symbol
+> already drifted between some historical release and today, the fence
+> enshrines the drifted shape and the fence alone won't notice. The fence
+> is necessary-not-sufficient: it stops FUTURE drift. The authority on
+> whether hop 1 actually works for a given vintage is task 2.8's E2E
+> (step 3), which runs a real old release against current main — when the
+> E2E and the fence disagree, the E2E wins and the fence gets corrected.
+
 **Step 3:** Add a dedicated CI job name (`updater-compat-fence`) so a
 failure is legible in PR checks, not buried.
 
@@ -168,7 +177,12 @@ explicit `--yes-dirty` to proceed, (c) downloads the platform
 release's published checksums; the EXPECTED hash list ships in the python
 package, updated by the release workflow), (d) `os.execv`s it with
 `["hermes-updater", "adopt", "--from-checkout", PROJECT_ROOT]` — python
-NEVER returns (assert via a monkeypatched execv).
+NEVER returns (assert via a monkeypatched execv). `cmd_adopt` accepts
+`--source <url>` (https:// or file://) and forwards it to the updater's
+existing `--source` flag — this is how tests and the E2E gate inject the
+fixture release server. No `HERMES_UPDATER_SOURCE` env var: ground rule
+3 (no new `HERMES_*` env vars for non-secret config) applies to test
+plumbing too, and the updater already speaks `--source`.
 
 **Step 2-4:** red → implement → green.
 
@@ -228,7 +242,11 @@ still green; new tests for the adopt arm beside it.
 
 ```
 FIXTURE: pick a REAL past release tag OLD_TAG (maintainer supplies one
-known-good, e.g. 6 months old).
+known-good, e.g. 6 months old). The script takes OLD_TAG as a parameter
+so CI can run it as a matrix — start with one tag, and grow the matrix
+toward the oldest still-in-the-wild vintage (support-channel signal):
+one tag proves one cohort, but the population is arbitrary-age updaters,
+and ancient updaters touch symbols newer ones don't.
 
 1. Legacy install: git clone at OLD_TAG into temp HERMES_HOME/hermes-agent,
    create venv the way that era's install.sh did (run THAT TAG's
@@ -241,7 +259,8 @@ known-good, e.g. 6 months old).
    identify the symbol from the traceback, add it to updater_compat, fix.
 4. Next launch: venv/bin/hermes --version with updates.adopt=prompt
    → adoption offer text appears exactly once.
-5. HERMES_UPDATER_SOURCE=file://$BUNDLE_FIXTURE venv/bin/hermes adopt --yes
+5. venv/bin/hermes adopt --yes --source file://$BUNDLE_FIXTURE
+   (the --source flag from task 2.5 — no env var; ground rule 3)
    → versions/<v>/ + current exist; PATH symlink re-pointed;
      checkout tree-hash unchanged; `hermes --version` == bundle version.
 6. hermes-updater adopt --undo → symlink back; old venv hermes still runs.

@@ -4,9 +4,9 @@ import { useMemo, useState } from 'react'
 import { Codicon } from '@/components/ui/codicon'
 import { DisclosureCaret } from '@/components/ui/disclosure-caret'
 import { Kbd, KbdCombo } from '@/components/ui/kbd'
-import { useContributions } from '@/contrib/react/use-contributions'
 import { SearchField } from '@/components/ui/search-field'
 import { Tip } from '@/components/ui/tooltip'
+import { useContributions } from '@/contrib/react/use-contributions'
 import { useI18n } from '@/i18n'
 import {
   allKeybindActions,
@@ -68,7 +68,7 @@ export function KeybindSettings() {
 
     const lower = query.toLowerCase()
 
-    return KEYBIND_ACTIONS.filter(action => {
+    return actionList.filter(action => {
       if (action.id === KEYBIND_PANEL_ACTION) {
         return false
       }
@@ -77,7 +77,7 @@ export function KeybindSettings() {
 
       return label.toLowerCase().includes(lower) || action.id.includes(lower)
     })
-  }, [isSearching, query, k.actions])
+  }, [actionList, isSearching, query, k.actions])
 
   const filteredReadonly = useMemo(() => {
     if (!isSearching) {

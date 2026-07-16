@@ -2338,6 +2338,22 @@ DEFAULT_CONFIG = {
         "board": "",                   # empty = default board
     },
 
+    # Deadline radar. The forward-looking complement to stalled_threads: a
+    # scheduled scan that nudges BEFORE a commitment's Due date lapses — open
+    # kanban cards due within `lead_time_hours` (but not yet past due) are
+    # batched into ONE digest through the notification budget governor
+    # (category "deadline_radar"). Each card is nudged at most once per
+    # `cooldown_hours`. OPT-IN: off by default (consent). `hermes radar list`
+    # previews without sending.
+    "deadline_radar": {
+        "enabled": False,
+        "scan_interval_hours": 4,      # cron cadence hint (guidance text only)
+        "lead_time_hours": 24,         # nudge for cards due within this window ahead
+        "cooldown_hours": 12,          # don't re-nudge the same card within this window
+        "max_items_per_digest": 5,
+        "board": "",                   # empty = default board
+    },
+
     # Subagent delegation — override the provider:model used by delegate_task
     # so child agents can run on a different (cheaper/faster) provider and model.
     # Uses the same runtime provider resolution as CLI/gateway startup, so all
@@ -5503,7 +5519,7 @@ _KNOWN_ROOT_KEYS = {
     "agent", "terminal", "display", "compression", "delegation",
     "auxiliary", "moa", "custom_providers", "context", "memory", "gateway",
     "notifications", "omi_commitments", "stalled_threads", "morning_brief",
-    "sessions", "streaming", "updates", "mcp_servers",
+    "deadline_radar", "sessions", "streaming", "updates", "mcp_servers",
 }
 
 # Valid fields inside a custom_providers list entry

@@ -1185,6 +1185,24 @@ morning_brief:
   board: ""                     # empty = default kanban board
 
 # =============================================================================
+# Deadline Radar
+# =============================================================================
+# The forward-looking complement to stalled_threads: nudges you BEFORE a
+# commitment's due date lapses. A scheduled scan finds open kanban cards due
+# within `lead_time_hours` (but not yet past due -- past-due cards belong to
+# stalled_threads) and batches them into ONE digest via the notification budget
+# governor (category "deadline_radar"). Each card is nudged at most once per
+# `cooldown_hours`. OPT-IN: off by default (consent). Preview anytime with
+# `hermes radar list` (dry run, no send); trigger with `hermes radar scan`.
+deadline_radar:
+  enabled: false                # opt-in -- scans your cards' due dates when true
+  scan_interval_hours: 4        # cron cadence hint (guidance text only)
+  lead_time_hours: 24           # nudge for cards due within this window ahead
+  cooldown_hours: 12            # don't re-nudge the same card within this window
+  max_items_per_digest: 5
+  board: ""                     # empty = default kanban board
+
+# =============================================================================
 # Subagent Delegation
 # =============================================================================
 # The delegate_task tool spawns child agents with isolated context.

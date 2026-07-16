@@ -283,3 +283,106 @@ def _register_threads_job(interval_hours: int) -> None:
         "--name stalled-thread-scan --no-agent --script threads_scan.py\n"
         "(or just run `hermes threads scan` manually anytime)."
     )
+
+
+def brief_command(args) -> int:
+    """Dispatch ``hermes brief <action>``."""
+    action = getattr(args, "brief_action", None)
+    if action == "show":
+        return _brief_show()
+    if action == "send":
+        return _brief_send()
+    if action == "enable":
+        return _brief_set_enabled(True)
+    if action == "disable":
+        return _brief_set_enabled(False)
+    print("Usage: hermes brief {show|send|enable|disable}")
+    return 1
+
+
+def _brief_show() -> int:
+    from agent.morning_brief import render_brief
+
+    result = render_brief()
+    if "error" in result:
+        print(f"Morning brief error: {result['error']}")
+        return 1
+    text = result.get("text", "")
+    if not text:
+        print("(brief is empty)")
+        return 0
+    print(text)
+    print(f"\n[dry run — {result.get('items', 0)} item(s); not sent]")
+    return 0
+
+
+def _brief_send() -> int:
+    from agent.morning_brief import run_morning_brief
+
+    result = run_morning_brief(force=False)
+    if result.get("skipped") == "disabled":
+        print(
+            "Morning brief is disabled. Enable it with "
+            "`hermes brief enable` (opt-in / consent)."
+        )
+        return 1
+    if result.get("skipped") == "empty":
+        print(
+            f"Nothing to send: {result.get('items', 0)} item(s) below the "
+            "min_items_to_send threshold. Preview with `hermes brief show`."
+        )
+        return 0
+    if "error" in result:
+        print(f"Morning brief error: {result['error']}")
+        return 1
+    print(
+        f"Morning brief: items={result.get('items', 0)} "
+        f"delivered={result.get('delivered', 0)}"
+    )
+    return 0
+
+
+def _brief_set_enabled(enabled: bool) -> int:
+    """Flip morning_brief.enabled in config.yaml (atomic, clobber-guarded)."""
+    from hermes_cli.config import (
+        atomic_config_write,
+        get_config_path,
+        load_config,
+        read_raw_config,
+    )
+
+    config_path = get_config_path()
+    cfg = load_config()
+    try:
+        on_disk = read_raw_config() or {}
+        section = dict(on_disk.get("morning_brief", {}))
+        section["enabled"] = enabled
+        on_disk["morning_brief"] = section
+        atomic_config_write(config_path, on_disk, sort_keys=False)
+    except Exception as exc:
+        print(f"Could not update {config_path}: {exc}")
+        return 1
+
+    interval_hours = int(cfg.get("morning_brief", {}).get("scan_interval_hours", 24))
+    if enabled:
+        _register_brief_job(interval_hours)
+        print(
+            "Morning brief ENABLED. Consent: your open loops (kanban, threads, "
+            "recent Omi) will be composed into a daily digest."
+        )
+    else:
+        print("Morning brief DISABLED.")
+    return 0
+
+
+def _register_brief_job(interval_hours: int) -> None:
+    """Print how to schedule the daily brief via `hermes cron`."""
+    print(
+        "To schedule the daily brief, first save a one-line script to "
+        "~/.hermes/scripts/brief_scan.py:\n"
+        "  from agent.morning_brief import run_morning_brief as r; print(r())\n"
+        "then register it (7am daily shown; adjust the cron expression):\n"
+        "  hermes cron create '0 7 * * *' "
+        "--name morning-brief --no-agent --script brief_scan.py\n"
+        "(or just run `hermes brief send` manually anytime)."
+    )

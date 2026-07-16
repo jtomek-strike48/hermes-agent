@@ -1159,6 +1159,24 @@ stalled_threads:
   exclude_sources: ["tool", "tui"]   # not real human conversations
 
 # =============================================================================
+# Morning Brief
+# =============================================================================
+# Once a day, composes your open loops (stalled candidates + open/overdue kanban
+# cards + best-effort recent Omi context) into ONE source-attributed digest to
+# the home channel, via the notification budget governor. OPT-IN: off by default
+# (consent). Preview anytime with `hermes brief show` (dry run, no send);
+# trigger with `hermes brief send`. Calendar is not included in v1 (no native
+# calendar source exists) -- it is a documented future `sections` entry.
+morning_brief:
+  enabled: false                # opt-in -- composes + sends a daily digest when true
+  scan_interval_hours: 24       # cron cadence hint (guidance text only)
+  sections: ["stalled", "kanban", "omi"]   # which sources to include
+  max_items: 10
+  min_items_to_send: 1          # skip empty days (no "nothing to report" spam)
+  omi_lookback_conversations: 10
+  board: ""                     # empty = default kanban board
+
+# =============================================================================
 # Subagent Delegation
 # =============================================================================
 # The delegate_task tool spawns child agents with isolated context.

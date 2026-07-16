@@ -2323,6 +2323,21 @@ DEFAULT_CONFIG = {
         "exclude_sources": ["tool", "tui"],  # not real human conversations
     },
 
+    # Morning brief. Once a day, composes open loops (stalled candidates +
+    # open/overdue kanban cards + best-effort recent Omi context) into ONE
+    # source-attributed digest to the home channel, via the notification
+    # budget governor (category "morning_brief", one per day). OPT-IN: off by
+    # default (consent). `hermes brief show` previews without sending.
+    "morning_brief": {
+        "enabled": False,
+        "scan_interval_hours": 24,     # cron cadence hint (guidance text only)
+        "sections": ["stalled", "kanban", "omi"],  # calendar deferred (no native source)
+        "max_items": 10,
+        "min_items_to_send": 1,        # skip empty days (no "nothing to report" spam)
+        "omi_lookback_conversations": 10,
+        "board": "",                   # empty = default board
+    },
+
     # Subagent delegation — override the provider:model used by delegate_task
     # so child agents can run on a different (cheaper/faster) provider and model.
     # Uses the same runtime provider resolution as CLI/gateway startup, so all
@@ -5487,7 +5502,7 @@ _KNOWN_ROOT_KEYS = {
     "fallback_providers", "credential_pool_strategies", "toolsets",
     "agent", "terminal", "display", "compression", "delegation",
     "auxiliary", "moa", "custom_providers", "context", "memory", "gateway",
-    "notifications", "omi_commitments", "stalled_threads",
+    "notifications", "omi_commitments", "stalled_threads", "morning_brief",
     "sessions", "streaming", "updates", "mcp_servers",
 }
 

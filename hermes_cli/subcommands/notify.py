@@ -81,3 +81,28 @@ def build_threads_parser(subparsers, *, cmd_threads: Callable) -> None:
     threads_subparsers.add_parser("disable", help="Disable the scan")
 
     threads_parser.set_defaults(func=cmd_threads)
+
+
+def build_brief_parser(subparsers, *, cmd_brief: Callable) -> None:
+    """Attach the ``brief`` (morning brief) subcommand."""
+    brief_parser = subparsers.add_parser(
+        "brief",
+        help="Morning brief — a daily source-attributed digest of open loops",
+        description=(
+            "Compose your open loops (commitments, awaiting-reply threads, "
+            "kanban, recent Omi) into ONE daily digest to the home channel. "
+            "Opt-in (consent required)."
+        ),
+    )
+    brief_subparsers = brief_parser.add_subparsers(dest="brief_action")
+
+    brief_subparsers.add_parser(
+        "show", help="Preview the brief without sending (dry run)"
+    )
+    brief_subparsers.add_parser("send", help="Compose and send the brief now")
+    brief_subparsers.add_parser(
+        "enable", help="Enable the daily brief (opt-in) and show how to schedule it"
+    )
+    brief_subparsers.add_parser("disable", help="Disable the daily brief")
+
+    brief_parser.set_defaults(func=cmd_brief)

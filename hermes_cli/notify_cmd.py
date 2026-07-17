@@ -386,3 +386,110 @@ def _register_brief_job(interval_hours: int) -> None:
         "--name morning-brief --no-agent --script brief_scan.py\n"
         "(or just run `hermes brief send` manually anytime)."
     )
+
+
+def radar_command(args) -> int:
+    """Dispatch ``hermes radar <action>``."""
+    action = getattr(args, "radar_action", None)
+    if action == "scan":
+        return _radar_scan()
+    if action == "list":
+        return _radar_list()
+    if action == "enable":
+        return _radar_set_enabled(True)
+    if action == "disable":
+        return _radar_set_enabled(False)
+    print("Usage: hermes radar {scan|list|enable|disable}")
+    return 1
+
+
+def _radar_scan() -> int:
+    from agent.deadline_radar import run_deadline_radar
+
+    result = run_deadline_radar()
+    if result.get("skipped") == "disabled":
+        print(
+            "Deadline radar is disabled. Enable it with "
+            "`hermes radar enable` (opt-in / consent)."
+        )
+        return 1
+    if "error" in result:
+        print(f"Deadline radar error: {result['error']}")
+        return 1
+    print(
+        f"Deadline radar complete: scanned={result.get('scanned', 0)} "
+        f"candidates={result.get('candidates', 0)} "
+        f"nudged={result.get('nudged', 0)} "
+        f"delivered={result.get('delivered', 0)}"
+    )
+    return 0
+
+
+def _radar_list() -> int:
+    from agent.deadline_radar import list_upcoming_deadlines
+
+    result = list_upcoming_deadlines()
+    if result.get("skipped") == "disabled":
+        print(
+            "Deadline radar is disabled. Enable it with "
+            "`hermes radar enable` (opt-in / consent)."
+        )
+        return 1
+    if "error" in result:
+        print(f"Deadline radar error: {result['error']}")
+        return 1
+    candidates = result.get("candidates", [])
+    if not candidates:
+        print("No upcoming deadlines within the lead-time window.")
+        return 0
+    print(f"Upcoming deadlines ({len(candidates)}):")
+    for c in candidates:
+        print(f"  {c.get('text', '')[:100]}")
+    print("(dry run — nothing was nudged; run `hermes radar scan` to act)")
+    return 0
+
+
+def _radar_set_enabled(enabled: bool) -> int:
+    """Flip deadline_radar.enabled in config.yaml (atomic, clobber-guarded)."""
+    from hermes_cli.config import (
+        atomic_config_write,
+        get_config_path,
+        load_config,
+        read_raw_config,
+    )
+
+    config_path = get_config_path()
+    cfg = load_config()
+    try:
+        on_disk = read_raw_config() or {}
+        section = dict(on_disk.get("deadline_radar", {}))
+        section["enabled"] = enabled
+        on_disk["deadline_radar"] = section
+        atomic_config_write(config_path, on_disk, sort_keys=False)
+    except Exception as exc:
+        print(f"Could not update {config_path}: {exc}")
+        return 1
+
+    interval_hours = int(cfg.get("deadline_radar", {}).get("scan_interval_hours", 4))
+    if enabled:
+        _register_radar_job(interval_hours)
+        print(
+            f"Deadline radar ENABLED (every {interval_hours}h). "
+            "Consent: your kanban cards' due dates will be scanned."
+        )
+    else:
+        print("Deadline radar DISABLED.")
+    return 0
+
+
+def _register_radar_job(interval_hours: int) -> None:
+    """Print how to schedule the recurring deadline radar via `hermes cron`."""
+    print(
+        "To schedule automatic scans, first save a one-line script to "
+        "~/.hermes/scripts/radar_scan.py:\n"
+        "  from agent.deadline_radar import run_deadline_radar as r; print(r())\n"
+        "then register it:\n"
+        f"  hermes cron create 'every {interval_hours} hours' "
+        "--name deadline-radar --no-agent --script radar_scan.py\n"
+        "(or just run `hermes radar scan` manually anytime)."
+    )

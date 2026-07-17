@@ -106,3 +106,29 @@ def build_brief_parser(subparsers, *, cmd_brief: Callable) -> None:
     brief_subparsers.add_parser("disable", help="Disable the daily brief")
 
     brief_parser.set_defaults(func=cmd_brief)
+
+
+def build_radar_parser(subparsers, *, cmd_radar: Callable) -> None:
+    """Attach the ``radar`` (deadline radar) subcommand."""
+    radar_parser = subparsers.add_parser(
+        "radar",
+        help="Deadline radar — nudge before a commitment's due date lapses",
+        description=(
+            "Find open kanban commitments due SOON (within the lead-time "
+            "window, but not yet past due) and nudge you once via a batched "
+            "digest. The forward-looking complement to `hermes threads`. "
+            "Opt-in (consent required)."
+        ),
+    )
+    radar_subparsers = radar_parser.add_subparsers(dest="radar_action")
+
+    radar_subparsers.add_parser("scan", help="Run the deadline scan now")
+    radar_subparsers.add_parser(
+        "list", help="Show upcoming deadlines without nudging (dry run)"
+    )
+    radar_subparsers.add_parser(
+        "enable", help="Enable the scan (opt-in) and show how to schedule it"
+    )
+    radar_subparsers.add_parser("disable", help="Disable the scan")
+
+    radar_parser.set_defaults(func=cmd_radar)

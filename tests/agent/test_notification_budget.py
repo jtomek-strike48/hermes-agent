@@ -386,3 +386,209 @@ def test_budget_status_auto_reconciles_when_enabled(cfg_patch):
         stats = db.get_category_stats("deadline_radar")
     assert stats is not None
     assert stats["act_count"] == 1
+
+
+# ── Boundary semantics (window is exclusive-start, inclusive-end) ────────────
+
+
+def test_implicit_reply_at_window_end_counts(cfg_patch):
+    # `has_inbound_user_message` uses timestamp > created AND <= created+window.
+    # A reply landing exactly at the window's end must still count.
+    with _il_cfg(cfg_patch):
+        db = nb._open_db()
+        now = time.time()
+        created = now - 2 * _WINDOW_MIN * 60
+        _seed_allowed(db, ledger_id="L1", category="cat", created_at=created)
+        _seed_user_message(db, source="telegram",
+                           ts=created + _WINDOW_MIN * 60)  # == created+window
+        result = nb.reconcile_implicit_feedback()
+    assert result["acted"] == 1
+
+
+def test_implicit_reply_at_notification_instant_excluded(cfg_patch):
+    # Exclusive start: a message with timestamp == created is not "after".
+    with _il_cfg(cfg_patch):
+        db = nb._open_db()
+        now = time.time()
+        created = now - 2 * _WINDOW_MIN * 60
+        _seed_allowed(db, ledger_id="L1", category="cat", created_at=created)
+        _seed_user_message(db, source="telegram", ts=created)  # == created
+        result = nb.reconcile_implicit_feedback()
+    assert result["acted"] == 0
+    assert result["settled"] == 1
+
+
+def test_implicit_reply_just_after_window_excluded(cfg_patch):
+    with _il_cfg(cfg_patch):
+        db = nb._open_db()
+        now = time.time()
+        created = now - 3 * _WINDOW_MIN * 60
+        _seed_allowed(db, ledger_id="L1", category="cat", created_at=created)
+        _seed_user_message(db, source="telegram",
+                           ts=created + _WINDOW_MIN * 60 + 1)  # 1s past window
+        result = nb.reconcile_implicit_feedback()
+    assert result["acted"] == 0
+    assert result["settled"] == 1
+
+
+def test_implicit_row_at_max_created_edge_is_reconciled(cfg_patch):
+    # A row created exactly at now-window (max_created) is ready: the query
+    # uses created_at <= max_created, so the edge must be included.
+    with _il_cfg(cfg_patch):
+        db = nb._open_db()
+        now = time.time()
+        # Slightly past the edge to avoid the sub-second gap between this
+        # now and reconcile's own time.time(); proves <= not <.
+        created = now - _WINDOW_MIN * 60 - 1
+        _seed_allowed(db, ledger_id="L1", category="cat", created_at=created)
+        result = nb.reconcile_implicit_feedback()
+    assert result["reconciled"] == 1
+
+
+# ── Multi-row batches ────────────────────────────────────────────────────────
+
+
+def test_implicit_mixed_act_and_settle_same_category(cfg_patch):
+    with _il_cfg(cfg_patch):
+        db = nb._open_db()
+        now = time.time()
+        c1 = now - 2 * _WINDOW_MIN * 60
+        c2 = now - 3 * _WINDOW_MIN * 60
+        _seed_allowed(db, ledger_id="L1", category="deadline_radar",
+                      created_at=c1)
+        _seed_allowed(db, ledger_id="L2", category="deadline_radar",
+                      created_at=c2)
+        # Engagement for L1 only.
+        _seed_user_message(db, source="telegram", ts=c1 + 60)
+        result = nb.reconcile_implicit_feedback()
+        stats = db.get_category_stats("deadline_radar")
+    assert result["acted"] == 1
+    assert result["settled"] == 1
+    # Exactly one act applied to the category (0.5 - 0.05).
+    assert stats["act_count"] == 1
+    assert stats["threshold"] == pytest.approx(0.45)
+
+
+def test_implicit_distinct_categories_learn_independently(cfg_patch):
+    with _il_cfg(cfg_patch):
+        db = nb._open_db()
+        now = time.time()
+        c1 = now - 2 * _WINDOW_MIN * 60
+        c2 = now - 3 * _WINDOW_MIN * 60
+        _seed_allowed(db, ledger_id="L1", category="omi_commitment",
+                      created_at=c1)
+        _seed_allowed(db, ledger_id="L2", category="morning_brief",
+                      created_at=c2)
+        _seed_user_message(db, source="telegram", ts=c1 + 60)  # window of L1
+        result = nb.reconcile_implicit_feedback()
+        omi = db.get_category_stats("omi_commitment")
+        brief = db.get_category_stats("morning_brief")
+    assert result["acted"] == 1 and result["settled"] == 1
+    assert omi["act_count"] == 1
+    # morning_brief saw only silence -> no stats row / no act.
+    assert brief is None or brief.get("act_count", 0) == 0
+
+
+# ── Partial channel data ─────────────────────────────────────────────────────
+
+
+def test_implicit_platform_only_matches_any_chat(cfg_patch):
+    # platform set, chat_id NULL -> scope to source, any chat on it counts.
+    with _il_cfg(cfg_patch):
+        db = nb._open_db()
+        now = time.time()
+        created = now - 2 * _WINDOW_MIN * 60
+        _seed_allowed(db, ledger_id="L1", category="cat",
+                      created_at=created, platform="telegram", chat_id=None)
+        _seed_user_message(db, source="telegram", chat_id="whatever",
+                           ts=created + 60)
+        result = nb.reconcile_implicit_feedback()
+    assert result["acted"] == 1
+
+
+def test_implicit_platform_only_excludes_other_platform(cfg_patch):
+    with _il_cfg(cfg_patch):
+        db = nb._open_db()
+        now = time.time()
+        created = now - 2 * _WINDOW_MIN * 60
+        _seed_allowed(db, ledger_id="L1", category="cat",
+                      created_at=created, platform="telegram", chat_id=None)
+        # Reply on a different platform must not count.
+        _seed_user_message(db, source="discord", ts=created + 60)
+        result = nb.reconcile_implicit_feedback()
+    assert result["acted"] == 0
+    assert result["settled"] == 1
+
+
+# ── Warm start + malformed config ────────────────────────────────────────────
+
+
+def test_implicit_act_lowers_from_existing_threshold(cfg_patch):
+    with _il_cfg(cfg_patch):
+        db = nb._open_db()
+        # Category already has learned stats (warm start).
+        db.upsert_category_stats(
+            "deadline_radar", threshold=0.35, p_act_ewma=0.4,
+            act_count=3, dismiss_count=1, updated_at=time.time(),
+        )
+        now = time.time()
+        created = now - 2 * _WINDOW_MIN * 60
+        _seed_allowed(db, ledger_id="L1", category="deadline_radar",
+                      created_at=created)
+        _seed_user_message(db, source="telegram", ts=created + 60)
+        nb.reconcile_implicit_feedback()
+        stats = db.get_category_stats("deadline_radar")
+    # Lowers from the CURRENT threshold (0.35 - 0.05), not from base.
+    assert stats["threshold"] == pytest.approx(0.30)
+    assert stats["act_count"] == 4
+
+
+def test_implicit_learning_non_dict_config_disables(cfg_patch):
+    # A malformed implicit_learning (not a dict) must fail safe to disabled,
+    # never raise.
+    with cfg_patch(implicit_learning="on"):
+        result = nb.reconcile_implicit_feedback()
+    assert result.get("skipped") == "disabled"
+
+
+def test_implicit_exclude_sources_non_list_falls_back(cfg_patch):
+    # exclude_sources given as a string must not crash the query; it falls
+    # back to the default exclusion list.
+    with _il_cfg(cfg_patch, exclude_sources="tool,tui"):
+        db = nb._open_db()
+        now = time.time()
+        created = now - 2 * _WINDOW_MIN * 60
+        _seed_allowed(db, ledger_id="L1", category="cat", created_at=created)
+        # A real telegram reply still counts under the fallback exclusions.
+        _seed_user_message(db, source="telegram", ts=created + 60)
+        result = nb.reconcile_implicit_feedback()
+    assert result["acted"] == 1
+
+
+def test_implicit_one_bad_row_does_not_abandon_batch(cfg_patch):
+    # A row whose per-row processing raises must be skipped, letting the rest
+    # of the batch reconcile (not abandoned).
+    with _il_cfg(cfg_patch):
+        db = nb._open_db()
+        now = time.time()
+        c1 = now - 2 * _WINDOW_MIN * 60
+        c2 = now - 3 * _WINDOW_MIN * 60
+        _seed_allowed(db, ledger_id="BAD", category="cat", created_at=c1)
+        _seed_allowed(db, ledger_id="GOOD", category="cat", created_at=c2)
+        _seed_user_message(db, source="telegram", ts=c2 + 60)  # engages GOOD
+
+        real_has = db.has_inbound_user_message
+
+        def _flaky(after, before, **kw):
+            # Explode only while processing the BAD row's window.
+            if abs(after - c1) < 1.0:
+                raise RuntimeError("boom on bad row")
+            return real_has(after, before, **kw)
+
+        with patch.object(db, "has_inbound_user_message", side_effect=_flaky), \
+                patch.object(nb, "_open_db", return_value=db):
+            result = nb.reconcile_implicit_feedback()
+        good = db.find_notification_by_candidate("cand:GOOD", "2026-07-17")
+    # GOOD still reconciled despite BAD raising.
+    assert result["acted"] == 1
+    assert good["feedback"] == "act"

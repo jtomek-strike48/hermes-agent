@@ -379,26 +379,38 @@ def _reconcile_implicit_feedback_impl() -> Dict[str, Any]:
     acted = 0
     settled = 0
     for row in pending:
-        created = float(row["created_at"])
-        engaged = db.has_inbound_user_message(
-            created,
-            created + window_s,
-            exclude_sources=exclude_sources,
-            # Channel-scope only when the notification recorded one; digest
-            # producers send with no target, so fall back to time-only.
-            source=row.get("platform"),
-            chat_id=row.get("chat_id"),
-        )
-        if engaged:
-            # Stamps feedback='act' on the ledger row (dedups rescans) AND
-            # lowers the category threshold / lifts p_act via the EWMA.
-            record_feedback(row["category"], "act", ledger_id=row["id"])
-            acted += 1
-        else:
-            # Mark handled so we don't re-scan it forever — but do NOT raise
-            # the bar. Silence is not a dismissal.
-            db.set_notification_feedback(row["id"], "settled")
-            settled += 1
+        # Per-row guard: one malformed/unwritable row must not abandon the
+        # rest of the batch (a failed row simply stays feedback=NULL and is
+        # retried on the next run). Logged at warning so the failure is
+        # visible, not silently swallowed.
+        try:
+            created = float(row["created_at"])
+            engaged = db.has_inbound_user_message(
+                created,
+                created + window_s,
+                exclude_sources=exclude_sources,
+                # Channel-scope only when the notification recorded one; digest
+                # producers send with no target, so fall back to time-only.
+                source=row.get("platform"),
+                chat_id=row.get("chat_id"),
+            )
+            if engaged:
+                # Stamps feedback='act' on the ledger row (dedups rescans) AND
+                # lowers the category threshold / lifts p_act via the EWMA.
+                record_feedback(row["category"], "act", ledger_id=row["id"])
+                acted += 1
+            else:
+                # Mark handled so we don't re-scan it forever — but do NOT
+                # raise the bar. Silence is not a dismissal.
+                db.set_notification_feedback(row["id"], "settled")
+                settled += 1
+        except Exception as exc:
+            logger.warning(
+                "implicit feedback: skipping ledger row %s (cat=%s): %s",
+                row.get("id"),
+                row.get("category"),
+                exc,
+            )
 
     if acted or settled:
         logger.info(

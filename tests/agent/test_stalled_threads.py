@@ -159,7 +159,7 @@ def test_scan_nudges_confirmed_open(cfg_patch):
         cfg_patch(scan_threads=False),
         patch.object(st, "_classify", side_effect=_confirm_all),
         patch("agent.notification_budget.should_deliver") as should,
-        patch("tools.send_message_tool.send_message_tool") as send,
+        patch("agent.proactive_helpers.deliver_proactive", return_value=True) as send,
     ):
         from agent.notification_budget import BudgetDecision
 
@@ -185,7 +185,7 @@ def test_governor_suppresses_digest(cfg_patch):
         cfg_patch(scan_threads=False),
         patch.object(st, "_classify", side_effect=_confirm_all),
         patch("agent.notification_budget.should_deliver") as should,
-        patch("tools.send_message_tool.send_message_tool") as send,
+        patch("agent.proactive_helpers.deliver_proactive", return_value=True) as send,
     ):
         from agent.notification_budget import BudgetDecision
 
@@ -219,7 +219,7 @@ def test_resolved_items_dropped(cfg_patch):
     with (
         cfg_patch(scan_threads=False),
         patch.object(st, "_classify", side_effect=_resolve_all),
-        patch("tools.send_message_tool.send_message_tool") as send,
+        patch("agent.proactive_helpers.deliver_proactive", return_value=True) as send,
     ):
         result = st.run_stalled_thread_scan()
     assert result["candidates"] == 0
@@ -243,7 +243,7 @@ def test_low_confidence_dropped(cfg_patch):
     with (
         cfg_patch(scan_threads=False),
         patch.object(st, "_classify", side_effect=_low),
-        patch("tools.send_message_tool.send_message_tool") as send,
+        patch("agent.proactive_helpers.deliver_proactive", return_value=True) as send,
     ):
         result = st.run_stalled_thread_scan()
     assert result["candidates"] == 0
@@ -256,7 +256,7 @@ def test_dedup_within_cooldown(cfg_patch):
         cfg_patch(scan_threads=False),
         patch.object(st, "_classify", side_effect=_confirm_all),
         patch("agent.notification_budget.should_deliver") as should,
-        patch("tools.send_message_tool.send_message_tool"),
+        patch("agent.proactive_helpers.deliver_proactive", return_value=True),
     ):
         from agent.notification_budget import BudgetDecision
 
@@ -281,7 +281,7 @@ def test_classify_failure_is_fail_soft(cfg_patch):
     with (
         cfg_patch(scan_threads=False),
         patch.object(st, "_classify", return_value={}),
-        patch("tools.send_message_tool.send_message_tool") as send,
+        patch("agent.proactive_helpers.deliver_proactive", return_value=True) as send,
     ):
         result = st.run_stalled_thread_scan()
     # No verdicts -> nothing confirmed open -> no nudge, no crash
@@ -296,7 +296,7 @@ def test_max_items_caps_digest(cfg_patch):
         cfg_patch(scan_threads=False, max_items_per_digest=2),
         patch.object(st, "_classify", side_effect=_confirm_all),
         patch("agent.notification_budget.should_deliver") as should,
-        patch("tools.send_message_tool.send_message_tool"),
+        patch("agent.proactive_helpers.deliver_proactive", return_value=True),
     ):
         from agent.notification_budget import BudgetDecision
 
@@ -382,7 +382,7 @@ def test_record_nudge_failure_is_fail_soft(cfg_patch):
         cfg_patch(scan_threads=False),
         patch.object(st, "_classify", side_effect=_confirm_all),
         patch("agent.notification_budget.should_deliver") as should,
-        patch("tools.send_message_tool.send_message_tool"),
+        patch("agent.proactive_helpers.deliver_proactive", return_value=True),
         patch.object(
             st.SessionDB,
             "record_stall_nudge",

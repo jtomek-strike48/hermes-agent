@@ -379,10 +379,9 @@ def _notify(conv_id: str, count: int, commitments: List[Dict[str, Any]]) -> bool
             f"📥 Filed {count} commitment card(s) from a recent Omi "
             f"conversation. Review them with `hermes kanban list`."
         )
-        from tools.send_message_tool import send_message_tool
+        from agent.proactive_helpers import deliver_proactive
 
-        send_message_tool({"message": message})
-        return True
+        return deliver_proactive(message)
     except Exception as exc:
         logger.debug(
             "omi_commitments: notification failed for %s: %s",

@@ -207,9 +207,7 @@ def test_deliver_digest_routes_through_governor():
         "due_epoch": int(now + 3600),
         "text": "[due in 1h] X",
     }]
-    with patch("agent.notification_budget.should_deliver") as sd, patch(
-        "tools.send_message_tool.send_message_tool"
-    ) as send:
+    with patch("agent.notification_budget.should_deliver") as sd, patch("agent.proactive_helpers.deliver_proactive", return_value=True) as send:
         from agent.notification_budget import BudgetDecision
 
         sd.return_value = BudgetDecision(
@@ -240,9 +238,7 @@ def test_deliver_digest_suppressed_no_send():
         "due_epoch": int(now + 3600),
         "text": "[due in 1h] X",
     }]
-    with patch("agent.notification_budget.should_deliver") as sd, patch(
-        "tools.send_message_tool.send_message_tool"
-    ) as send:
+    with patch("agent.notification_budget.should_deliver") as sd, patch("agent.proactive_helpers.deliver_proactive", return_value=True) as send:
         from agent.notification_budget import BudgetDecision
 
         sd.return_value = BudgetDecision(
@@ -262,9 +258,7 @@ def test_deliver_digest_urgency_lower_for_far_deadline():
         "due_epoch": int(now + 24 * 3600),  # a full day out
         "text": "[due in 24h] X",
     }]
-    with patch("agent.notification_budget.should_deliver") as sd, patch(
-        "tools.send_message_tool.send_message_tool"
-    ):
+    with patch("agent.notification_budget.should_deliver") as sd, patch("agent.proactive_helpers.deliver_proactive", return_value=True):
         from agent.notification_budget import BudgetDecision
 
         sd.return_value = BudgetDecision(

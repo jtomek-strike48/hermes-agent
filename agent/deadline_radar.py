@@ -140,10 +140,9 @@ def _deliver_digest(items: List[Dict[str, Any]]) -> bool:
         ]
         n = len(items)
         message = f"Heads up — {n} deadline(s) coming up:\n" + "\n".join(lines)
-        from tools.send_message_tool import send_message_tool
+        from agent.proactive_helpers import deliver_proactive
 
-        send_message_tool({"message": message})
-        return True
+        return deliver_proactive(message)
     except Exception as exc:
         logger.warning(
             "deadline_radar: digest delivery failed: %s", exc, exc_info=True

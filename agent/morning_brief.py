@@ -281,10 +281,9 @@ def _deliver(text: str, items: List[Dict[str, Any]]) -> bool:
                 decision.reason,
             )
             return False
-        from tools.send_message_tool import send_message_tool
+        from agent.proactive_helpers import deliver_proactive
 
-        send_message_tool({"message": text})
-        return True
+        return deliver_proactive(text)
     except Exception as exc:
         logger.warning("morning_brief: delivery failed: %s", exc, exc_info=True)
         return False

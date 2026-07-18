@@ -197,7 +197,7 @@ def test_notification_routed_through_governor(cfg_patch):
         patch.object(oc, "_call_mcp", return_value=convs),
         patch.object(oc, "_extract_commitments", return_value=commitments),
         patch("agent.notification_budget.should_deliver") as should,
-        patch("tools.send_message_tool.send_message_tool") as send,
+        patch("agent.proactive_helpers.deliver_proactive", return_value=True) as send,
     ):
         from agent.notification_budget import BudgetDecision
 
@@ -226,7 +226,7 @@ def test_notification_suppressed_when_budget_denies(cfg_patch):
         patch.object(oc, "_call_mcp", return_value=convs),
         patch.object(oc, "_extract_commitments", return_value=commitments),
         patch("agent.notification_budget.should_deliver") as should,
-        patch("tools.send_message_tool.send_message_tool") as send,
+        patch("agent.proactive_helpers.deliver_proactive", return_value=True) as send,
     ):
         from agent.notification_budget import BudgetDecision
 

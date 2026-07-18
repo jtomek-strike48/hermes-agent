@@ -236,9 +236,7 @@ def test_governor_allow_sends(cfg_patch):
     items = [{"source": "commitment", "text": "deck"}]
     with cfg_patch(), patch.object(mb, "_gather", return_value=items), patch.object(
         mb, "_synthesize", return_value="brief text"
-    ), patch("agent.notification_budget.should_deliver") as should, patch(
-        "tools.send_message_tool.send_message_tool"
-    ) as send:
+    ), patch("agent.notification_budget.should_deliver") as should, patch("agent.proactive_helpers.deliver_proactive", return_value=True) as send:
         from agent.notification_budget import BudgetDecision
 
         should.return_value = BudgetDecision(
@@ -255,9 +253,7 @@ def test_governor_suppresses(cfg_patch):
     items = [{"source": "commitment", "text": "deck"}]
     with cfg_patch(), patch.object(mb, "_gather", return_value=items), patch.object(
         mb, "_synthesize", return_value="brief text"
-    ), patch("agent.notification_budget.should_deliver") as should, patch(
-        "tools.send_message_tool.send_message_tool"
-    ) as send:
+    ), patch("agent.notification_budget.should_deliver") as should, patch("agent.proactive_helpers.deliver_proactive", return_value=True) as send:
         from agent.notification_budget import BudgetDecision
 
         should.return_value = BudgetDecision(
@@ -275,7 +271,7 @@ def test_already_delivered_today_not_resent(cfg_patch):
     items = [{"source": "commitment", "text": "deck"}]
     with cfg_patch(), patch.object(mb, "_gather", return_value=items), patch.object(
         mb, "_synthesize", return_value="brief text"
-    ), patch("tools.send_message_tool.send_message_tool") as send:
+    ), patch("agent.proactive_helpers.deliver_proactive", return_value=True) as send:
         first = mb.run_morning_brief()
         second = mb.run_morning_brief()
     assert first["delivered"] == 1

@@ -1,0 +1,6 @@
+name: triage-buttons
+version: "0.2.0"
+description: "The buttoned issue-triage digest + its DM reply loop. Adds `hermes triage` (publish/list): Triage v2 emits the shared reviewer contract per issue, applies reversible auto-actions (only with --live), and posts ONE buttoned Slack digest. Buttons: gated PM actions (set-priority/close/mark-duplicate/won't-fix, fail-closed auth, double-click guarded) and 'Answer in DM' — clicking DMs you the reviewer's clarifying questions; your free-text DM reply is captured by a pre_gateway_dispatch hook and posted to the GitHub issue, then the message is consumed (skip) so it doesn't also start an agent turn. No core-gateway edits."
+author: "Hermes Agent"
+requires_env:
+  - SLACK_BOT_TOKEN

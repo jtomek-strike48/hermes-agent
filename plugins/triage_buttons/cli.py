@@ -68,8 +68,12 @@ def _self_login() -> str:
     ask-operator). Empty on failure — the engine then treats no one as the
     operator, which only means questions go to GitHub, never the wrong way."""
     try:
+        # stdin=DEVNULL: this runs in gateway/TUI context (via `hermes triage`);
+        # a subprocess with no stdin= can steal the TUI's stdin. gh never needs
+        # input here. (Enforced by tests/tools/test_subprocess_stdin_guard.py.)
         out = subprocess.run(["gh", "api", "user", "-q", ".login"],
-                             capture_output=True, text=True, timeout=30)
+                             capture_output=True, text=True, timeout=30,
+                             stdin=subprocess.DEVNULL)
         return (out.stdout or "").strip()
     except (subprocess.SubprocessError, OSError):
         return ""

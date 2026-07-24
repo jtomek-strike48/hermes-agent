@@ -172,3 +172,61 @@ def test_pr_payload_marks_self_authored_and_truncates_diff():
     assert payload["operator_is_author"] is True
     assert payload["ref"] == "o/r#7"
     assert len(payload["diff"]) == 40000  # truncated to the cap
+
+
+# --- codebase mode ---------------------------------------------------------
+
+def _codebase_verdict(**over):
+    base = {
+        "artifact": "codebase", "ref": "o/r", "verdict": "healthy",
+        "summary": "s", "findings": [], "missing_info": [], "suggested_actions": [],
+    }
+    base.update(over)
+    return base
+
+
+def test_valid_codebase_verdict_passes():
+    v = rc.validate(_codebase_verdict(verdict="at-risk"), mode="codebase")
+    assert v["verdict"] == "at-risk"
+
+
+def test_pr_verdict_invalid_in_codebase_mode():
+    with pytest.raises(rc.ContractError):
+        rc.validate(_codebase_verdict(verdict="lgtm"), mode="codebase")
+
+
+def test_open_issue_is_gated_ask_operator_is_auto():
+    v = rc.validate(_codebase_verdict(suggested_actions=[
+        {"action": "open-issue", "args": {"title": "flaky tests", "body": "..."}},
+        {"action": "ask-operator", "args": {"questions": ["intended coverage target?"]}},
+    ]), mode="codebase")
+    assert {a["action"] for a in rc.gated_actions(v, mode="codebase")} == {"open-issue"}
+    assert {a["action"] for a in rc.auto_actions(v, mode="codebase")} == {"ask-operator"}
+
+
+def test_open_issue_gated_flag_recomputed_not_trusted():
+    v = rc.validate(_codebase_verdict(suggested_actions=[
+        {"action": "open-issue", "gated": False, "args": {"title": "x"}},
+    ]), mode="codebase")
+    assert v["suggested_actions"][0]["gated"] is True
+
+
+def test_cross_mode_action_rejected_in_codebase():
+    # "merge"/"approve" are PR actions; not part of codebase vocab.
+    with pytest.raises(rc.ContractError):
+        rc.validate(_codebase_verdict(suggested_actions=[{"action": "merge"}]), mode="codebase")
+
+
+def test_codebase_payload_passes_signals_through():
+    import json
+    signals = {"tests": "3 failing", "coverage": 0.71, "dep_audit": ["CVE-x"]}
+    payload = json.loads(rc.build_codebase_review_payload("o/r", signals))
+    assert payload["ref"] == "o/r"
+    assert payload["signals"]["coverage"] == 0.71
+    assert payload["signals"]["dep_audit"] == ["CVE-x"]
+
+
+def test_codebase_payload_non_dict_signals_coerced():
+    import json
+    payload = json.loads(rc.build_codebase_review_payload("o/r", None))
+    assert payload["signals"] == {}

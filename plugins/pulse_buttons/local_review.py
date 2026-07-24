@@ -37,6 +37,12 @@ _REVIEW_TIMEOUT_S = int(os.environ.get("PULSE_REVIEW_TIMEOUT_S", "1500"))  # 25 
 # Model for the local review. Haiku is too weak for a real review; default to a
 # capable model, overridable.
 _REVIEW_MODEL = os.environ.get("PULSE_REVIEW_MODEL", "claude-sonnet-5")
+# Second choice when the primary is overloaded/unavailable. A review is a ~25-min
+# headless run triggered by a Slack click; losing it to a transient capacity blip
+# means the operator clicks and silently gets nothing back.
+_REVIEW_FALLBACK_MODEL = os.environ.get(
+    "PULSE_REVIEW_FALLBACK_MODEL", "us.anthropic.claude-opus-4-8[1m]"
+)
 
 
 def clone_dir(repo: str) -> Optional[Path]:
@@ -55,10 +61,16 @@ def build_review_command(url: str, cwd: Path) -> list[str]:
     URL. ``--permission-mode acceptEdits`` is deliberately NOT used — review is
     read-only; the command may create a scratch worktree but must not touch the
     working tree, so we leave the default (no auto-approved writes).
+
+    ``--fallback-model`` covers an overloaded/unavailable primary — the flag
+    applies to ``--print``/``-p`` runs, which is exactly this one. Verified
+    end-to-end: with the primary forced to fail, the run reported "Opus 5 not
+    available — using Opus 4.8 for this session" and billed opus-4-8, exit 0.
     """
     return [
         "claude", "-p", f"/review-pr {url}",
         "--model", _REVIEW_MODEL,
+        "--fallback-model", _REVIEW_FALLBACK_MODEL,
     ]
 
 

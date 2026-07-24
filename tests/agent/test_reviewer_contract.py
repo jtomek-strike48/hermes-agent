@@ -103,3 +103,72 @@ def test_payload_detects_other_reporter():
     issue = {"repo": "o/r", "number": 5, "author": {"login": "someone-else"}}
     payload = json.loads(rc.build_triage_user_payload(issue, "me"))
     assert payload["operator_is_reporter"] is False
+
+
+# --- PR mode ---------------------------------------------------------------
+
+def _pr_verdict(**over):
+    base = {
+        "artifact": "pr", "ref": "o/r#1", "verdict": "lgtm",
+        "summary": "s", "findings": [], "missing_info": [], "suggested_actions": [],
+    }
+    base.update(over)
+    return base
+
+
+def test_valid_pr_verdict_passes():
+    v = rc.validate(_pr_verdict(verdict="blocker"), mode="pr")
+    assert v["verdict"] == "blocker"
+
+
+def test_issue_verdict_invalid_in_pr_mode():
+    # "ready" is an issue verdict; it must not validate as a PR verdict.
+    with pytest.raises(rc.ContractError):
+        rc.validate(_pr_verdict(verdict="ready"), mode="pr")
+
+
+def test_pr_review_submissions_are_gated():
+    v = rc.validate(_pr_verdict(suggested_actions=[
+        {"action": "approve", "args": {"body": "LGTM"}},
+        {"action": "request-changes", "args": {"body": "fix X"}},
+        {"action": "comment-review", "args": {"body": "nit"}},
+        {"action": "merge", "args": {}},
+    ]), mode="pr")
+    gated = {a["action"] for a in rc.gated_actions(v, mode="pr")}
+    assert gated == {"approve", "request-changes", "comment-review", "merge"}
+    assert rc.auto_actions(v, mode="pr") == []
+
+
+def test_pr_label_is_auto_but_ask_operator_too():
+    v = rc.validate(_pr_verdict(suggested_actions=[
+        {"action": "apply-label", "args": {"labels": ["area/frontend"]}},
+        {"action": "ask-operator", "args": {"questions": ["intended?"]}},
+    ]), mode="pr")
+    autos = {a["action"] for a in rc.auto_actions(v, mode="pr")}
+    assert autos == {"apply-label", "ask-operator"}
+    assert rc.gated_actions(v, mode="pr") == []
+
+
+def test_pr_approve_gated_flag_recomputed_not_trusted():
+    """An LLM claiming approve is not-gated must be overridden — fail closed."""
+    v = rc.validate(_pr_verdict(suggested_actions=[
+        {"action": "approve", "gated": False, "args": {"body": "ok"}},
+    ]), mode="pr")
+    assert v["suggested_actions"][0]["gated"] is True
+
+
+def test_issue_action_unknown_in_pr_mode_rejected():
+    # "close"/"set-priority" are issue-mode actions; not part of PR vocab.
+    with pytest.raises(rc.ContractError):
+        rc.validate(_pr_verdict(suggested_actions=[{"action": "set-priority"}]), mode="pr")
+
+
+def test_pr_payload_marks_self_authored_and_truncates_diff():
+    import json
+    pr = {"repo": "o/r", "number": 7, "title": "t", "body": "b",
+          "labels": [{"name": "area/x"}], "author": {"login": "me"},
+          "diff": "x" * 50000}
+    payload = json.loads(rc.build_pr_review_payload(pr, "me"))
+    assert payload["operator_is_author"] is True
+    assert payload["ref"] == "o/r#7"
+    assert len(payload["diff"]) == 40000  # truncated to the cap

@@ -1,4 +1,7 @@
 .DS_Store
+# Machine-local install marker written by the installer (contents: "git").
+# Not part of the app — must never be committed.
+.install_method
 /venv/
 /venv.old/
 /_pycache/

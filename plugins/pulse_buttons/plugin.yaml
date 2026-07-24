@@ -1,0 +1,6 @@
+name: pulse-buttons
+version: "0.1.0"
+description: "Action buttons on the Project Pulse digest. Each Pulse item gets a next-step button: 'Review with Claude' (spawns a headless /review-pr on this laptop, result to Slack), 'Double-check & merge' (live CI-green + resolved-threads gate, then a two-step Confirm-merge squash), and 'How to unblock' (analysis of changes-requested / failing CI to concrete steps). Adds the `hermes pulse` CLI (publish/list) and Slack action handlers; no model tools."
+author: "Hermes Agent"
+requires_env:
+  - SLACK_BOT_TOKEN
